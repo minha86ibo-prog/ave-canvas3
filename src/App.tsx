@@ -119,9 +119,12 @@ export default function App() {
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [view, setView] = useState<'main' | 'hallOfFame' | 'description' | 'signup'>('main');
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleLogin = async (role: Role = 'teacher') => {
     try {
       const provider = new GoogleAuthProvider();
+      // Force account selection to avoid some silent failures
+      provider.setCustomParameters({ prompt: 'select_account' });
+      
       const result = await signInWithPopup(auth, provider);
       const u = result.user;
       
@@ -130,9 +133,9 @@ export default function App() {
       if (!p) {
         const newProfile = {
           uid: u.uid,
-          name: u.displayName || 'Teacher',
+          name: u.displayName || (role === 'teacher' ? 'Teacher' : 'Student'),
           email: u.email || '',
-          role: 'teacher' as Role
+          role: role
         };
         await firestoreService.createUser(u.uid, newProfile);
         setProfile(newProfile);
@@ -141,7 +144,14 @@ export default function App() {
       }
       setView('main');
     } catch (error: any) {
-      alert("로그인 중 오류가 발생했습니다: " + error.message);
+      console.error("Google Login Error:", error);
+      if (error.code === 'auth/popup-blocked') {
+        alert("팝업이 차단되었습니다. 브라우저 설정에서 팝업을 허용하거나, 앱을 새 탭에서 열어주세요.");
+      } else if (error.code === 'auth/cancelled-popup-request') {
+        // User closed the popup, no need to alert
+      } else {
+        alert("로그인 중 오류가 발생했습니다: " + error.message + "\n(참고: AI Studio 미리보기 환경에서는 '새 탭에서 열기'를 권장합니다.)");
+      }
     }
   };
 
@@ -272,7 +282,7 @@ function MainScreen({
   onJoinGame: (id: string) => void,
   onCreateGame: () => void,
   onLogout: () => void,
-  onGoogleLogin: () => void
+  onGoogleLogin: (role?: Role) => void
 }) {
   const [nickname, setNickname] = useState('');
   const [joining, setJoining] = useState(false);
@@ -347,7 +357,7 @@ function MainScreen({
             <CardHeader className="p-12 pb-0">
               <div className="flex items-center gap-4 mb-6">
                 <Play className="w-8 h-8 text-slate-900" />
-                <CardTitle className="text-4xl font-black tracking-tighter font-heading">학생 체험</CardTitle>
+                <CardTitle className="text-4xl font-black tracking-tighter font-heading">학생으로 입장하기</CardTitle>
               </div>
               <CardDescription className="text-lg font-sans font-medium text-slate-500">닉네임과 코드를 입력하고 게임에 참여하세요.</CardDescription>
             </CardHeader>
@@ -382,6 +392,20 @@ function MainScreen({
               >
                 {joining ? <Loader2 className="animate-spin" /> : "게임하기"}
               </Button>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center"><Separator /></div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white px-2 text-slate-400">Or</span>
+                </div>
+              </div>
+              <Button 
+                variant="outline"
+                className="w-full border-2 border-slate-200 py-8 rounded-2xl text-lg font-bold flex items-center justify-center gap-3 hover:bg-slate-50"
+                onClick={() => onGoogleLogin('student')}
+              >
+                <LogIn className="w-5 h-5" />
+                구글로 입장하기
+              </Button>
             </CardContent>
           </Card>
 
@@ -390,7 +414,7 @@ function MainScreen({
             <CardHeader className="p-12 pb-0">
               <div className="flex items-center gap-4 mb-6">
                 <Users className="w-8 h-8 text-slate-900" />
-                <CardTitle className="text-4xl font-black tracking-tighter font-heading">교사 체험</CardTitle>
+                <CardTitle className="text-4xl font-black tracking-tighter font-heading">교사로 입장하기</CardTitle>
               </div>
               <CardDescription className="text-lg font-sans font-medium text-slate-500">구글 계정으로 로그인하여 게임을 관리하세요.</CardDescription>
             </CardHeader>
@@ -472,7 +496,7 @@ function MainScreen({
   );
 }
 
-function SignupPage({ onBack, onSuccess, onGoogleLogin }: { onBack: () => void, onSuccess: () => void, onGoogleLogin: () => void }) {
+function SignupPage({ onBack, onSuccess, onGoogleLogin }: { onBack: () => void, onSuccess: () => void, onGoogleLogin: (role?: Role) => void }) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -521,7 +545,7 @@ function SignupPage({ onBack, onSuccess, onGoogleLogin }: { onBack: () => void, 
         
         <div className="space-y-6">
           <Button 
-            onClick={onGoogleLogin}
+            onClick={() => onGoogleLogin()}
             className="w-full bg-white border-2 border-slate-200 text-slate-900 py-8 rounded-2xl text-lg font-bold flex items-center justify-center gap-4 hover:bg-slate-50"
           >
             <LogIn className="w-6 h-6" />
