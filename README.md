@@ -42,11 +42,29 @@ Vercel에서 `Build Failed`가 뜬다면 다음을 시도해 보세요:
 1. Vercel 프로젝트 설정의 **Build & Development Settings**에서 `Build Command`를 `OVERRIDE` 한 뒤 `vite build`로 입력합니다.
 2. 환경 변수가 정확히 입력되었는지 다시 확인합니다.
 
+### 5단계: Firebase 서비스 활성화 (필수)
+배포된 사이트가 정상 작동하려면 Firebase 콘솔에서 다음 설정을 반드시 완료해야 합니다.
+
+1. **Authentication 활성화:**
+   - [Firebase Console](https://console.firebase.google.com/) 접속 -> 프로젝트 선택
+   - **Build > Authentication > Sign-in method** 클릭
+   - **Google** 로그인 활성화 (교사용)
+   - **익명(Anonymous)** 로그인 활성화 (학생용)
+   - **Authorized domains**에 Vercel 배포 URL 추가 (예: `ace-canvas.vercel.app`)
+
+2. **Firestore Database 생성:**
+   - **Build > Firestore Database** 클릭
+   - **Create database** 클릭 -> 위치 선택 -> **Production mode**로 시작
+   - AI Studio에서 다운로드한 `firestore.rules` 내용을 복사하여 **Rules** 탭에 붙여넣고 **Publish** 클릭
+
+3. **Storage 활성화:**
+   - **Build > Storage** 클릭 -> **Get started** 클릭 -> 기본 설정으로 완료
+
 ---
 
 ## 🛠 주요 기능
-- **학생 체험:** 실시간 작품 묘사 및 투표 참여
-- **교사 체험:** 게임 세션 생성 및 실시간 대시보드 관리
+- **학생 체험:** 실시간 작품 묘사 및 투표 참여 (익명 로그인)
+- **교사 체험:** 게임 세션 생성 및 실시간 대시보드 관리 (구글 로그인)
 - **AI 이미지 생성:** 우승작 묘사를 바탕으로 한 AI의 재해석 (Imagen 4.0)
 - **AI 피드백:** 작품 관찰력 향상을 위한 맞춤형 교육 피드백 (Gemini 1.5 Flash)
 - **명예의 전당:** 역대 우승작 및 AI 생성 이미지 갤러리

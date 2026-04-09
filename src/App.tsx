@@ -118,25 +118,31 @@ export default function App() {
   const [currentGameId, setCurrentGameId] = useState<string | null>(null);
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [view, setView] = useState<'main' | 'hallOfFame' | 'description' | 'signup'>('main');
-  const [isDemoMode, setIsDemoMode] = useState(false);
 
-  const handleDemoLogin = (role: Role, name: string) => {
-    setIsDemoMode(true);
-    const mockUser = {
-      uid: 'demo-' + Math.random().toString(36).substr(2, 9),
-      displayName: name,
-      email: role === 'teacher' ? 'demo@teacher.com' : '',
-      isAnonymous: role === 'student'
-    } as any;
-    
-    setUser(mockUser);
-    setProfile({
-      uid: mockUser.uid,
-      name: name,
-      email: mockUser.email,
-      role: role
-    });
-    setView('main');
+  const handleGoogleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const u = result.user;
+      
+      // Check if profile exists, if not create one
+      const p = await firestoreService.getUser(u.uid);
+      if (!p) {
+        const newProfile = {
+          uid: u.uid,
+          name: u.displayName || 'Teacher',
+          email: u.email || '',
+          role: 'teacher' as Role
+        };
+        await firestoreService.createUser(u.uid, newProfile);
+        setProfile(newProfile);
+      } else {
+        setProfile(p as UserProfile);
+      }
+      setView('main');
+    } catch (error: any) {
+      alert("로그인 중 오류가 발생했습니다: " + error.message);
+    }
   };
 
   useEffect(() => {
@@ -165,10 +171,7 @@ export default function App() {
   }, []);
 
   const handleLogout = async () => {
-    if (!isDemoMode) {
-      await signOut(auth);
-    }
-    setIsDemoMode(false);
+    await signOut(auth);
     setUser(null);
     setProfile(null);
     setCurrentGameId(null);
@@ -227,14 +230,14 @@ export default function App() {
             onJoinGame={setCurrentGameId}
             onCreateGame={() => setIsCreatingGame(true)}
             onLogout={handleLogout}
-            onDemoLogin={handleDemoLogin}
+            onGoogleLogin={handleGoogleLogin}
           />
         )}
         {view === 'signup' && (
           <SignupPage 
             onBack={() => setView('main')} 
             onSuccess={() => setView('main')}
-            onDemoLogin={handleDemoLogin}
+            onGoogleLogin={handleGoogleLogin}
           />
         )}
         {view === 'hallOfFame' && (
@@ -259,7 +262,7 @@ function MainScreen({
   onJoinGame,
   onCreateGame,
   onLogout,
-  onDemoLogin
+  onGoogleLogin
 }: { 
   user: FirebaseUser | null, 
   profile: UserProfile | null,
@@ -269,7 +272,7 @@ function MainScreen({
   onJoinGame: (id: string) => void,
   onCreateGame: () => void,
   onLogout: () => void,
-  onDemoLogin: (role: Role, name: string) => void
+  onGoogleLogin: () => void
 }) {
   const [nickname, setNickname] = useState('');
   const [joining, setJoining] = useState(false);
@@ -287,13 +290,6 @@ function MainScreen({
     
     setJoining(true);
     try {
-      if (code === '000000') {
-        onDemoLogin('student', nickname.trim());
-        onJoinGame('demo-game-id');
-        setJoining(false);
-        return;
-      }
-
       const game = await firestoreService.getGameByCode(code);
       if (game) {
         const cred = await signInAnonymously(auth);
@@ -371,7 +367,7 @@ function MainScreen({
                   <Label htmlFor="gameCode" className="text-lg font-black text-slate-900">입장 코드</Label>
                   <Input 
                     id="gameCode" 
-                    placeholder="6자리 코드 입력 (데모: 000000)" 
+                    placeholder="6자리 코드 입력" 
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
                     className="rounded-2xl h-16 font-heading text-center text-2xl tracking-[0.2em] border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-slate-900 transition-all"
@@ -386,9 +382,6 @@ function MainScreen({
               >
                 {joining ? <Loader2 className="animate-spin" /> : "게임하기"}
               </Button>
-              <p className="text-center text-sm text-slate-400 font-medium">
-                * 데모 코드 '000000'을 입력하면 즉시 체험이 가능합니다.
-              </p>
             </CardContent>
           </Card>
 
@@ -399,25 +392,29 @@ function MainScreen({
                 <Users className="w-8 h-8 text-slate-900" />
                 <CardTitle className="text-4xl font-black tracking-tighter font-heading">교사 체험</CardTitle>
               </div>
-              <CardDescription className="text-lg font-sans font-medium text-slate-500">회원가입 없이 교사 대시보드를 확인하세요.</CardDescription>
+              <CardDescription className="text-lg font-sans font-medium text-slate-500">구글 계정으로 로그인하여 게임을 관리하세요.</CardDescription>
             </CardHeader>
             <CardContent className="p-12 flex flex-col justify-between h-[calc(100%-160px)]">
               <div className="space-y-12">
                 <p className="text-slate-500 leading-relaxed text-xl font-medium">
-                  교사가 되어 게임을 생성하고 학생들의 참여를 관리하는 화면을 미리 볼 수 있습니다.
+                  교사가 되어 게임을 생성하고 학생들의 참여를 관리할 수 있습니다.
                 </p>
-                <Button 
-                  className="w-full bg-slate-900 hover:bg-slate-800 text-white py-12 rounded-3xl text-2xl font-black shadow-2xl group"
-                  onClick={() => {
-                    onDemoLogin('teacher', '데모 선생님');
-                    onCreateGame();
-                  }}
-                >
-                  교사 체험 시작하기
-                </Button>
-                <p className="text-center text-sm text-slate-400 font-medium">
-                  * 프로토타입 확인을 위해 회원가입 절차를 생략합니다.
-                </p>
+                {user && profile?.role === 'teacher' ? (
+                  <Button 
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white py-12 rounded-3xl text-2xl font-black shadow-2xl group"
+                    onClick={onCreateGame}
+                  >
+                    대시보드로 이동
+                  </Button>
+                ) : (
+                  <Button 
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white py-12 rounded-3xl text-2xl font-black shadow-2xl group flex items-center justify-center gap-4"
+                    onClick={onGoogleLogin}
+                  >
+                    <LogIn className="w-8 h-8" />
+                    구글로 시작하기
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -425,20 +422,17 @@ function MainScreen({
           {/* Experience Now Card */}
           <Card 
             className="rounded-[3rem] border-none shadow-2xl bg-white cursor-pointer hover:shadow-orange-500/20 transition-all duration-500 group overflow-hidden relative"
-            onClick={() => {
-              onDemoLogin('student', '데모 학생');
-              onJoinGame('demo-game-id');
-            }}
+            onClick={onViewDescription}
           >
             <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <CardContent className="p-12 flex flex-col justify-center h-full relative z-10">
               <div className="w-20 h-20 bg-orange-500 rounded-[2rem] flex items-center justify-center mb-10 shadow-xl shadow-orange-200 group-hover:scale-110 transition-transform duration-500">
-                <Sparkles className="text-white w-10 h-10" />
+                <Info className="text-white w-10 h-10" />
               </div>
-              <h3 className="text-5xl font-black mb-6 font-heading tracking-tighter leading-tight">지금 바로<br /><span className="text-orange-500">체험하기</span></h3>
-              <p className="text-slate-500 text-xl font-medium leading-relaxed mb-12">기다림 없이 즉시 학생으로<br />게임에 참여해보세요.</p>
+              <h3 className="text-5xl font-black mb-6 font-heading tracking-tighter leading-tight">게임 방법<br /><span className="text-orange-500">알아보기</span></h3>
+              <p className="text-slate-500 text-xl font-medium leading-relaxed mb-12">ACE CANVAS가 무엇인지<br />자세히 알아보세요.</p>
               <div className="flex items-center gap-4 text-orange-600 font-black text-2xl">
-                <span>시작하기</span>
+                <span>자세히 보기</span>
                 <ArrowRight className="w-8 h-8 group-hover:translate-x-3 transition-transform" />
               </div>
             </CardContent>
@@ -478,7 +472,7 @@ function MainScreen({
   );
 }
 
-function SignupPage({ onBack, onSuccess, onDemoLogin }: { onBack: () => void, onSuccess: () => void, onDemoLogin: (role: Role, name: string) => void }) {
+function SignupPage({ onBack, onSuccess, onGoogleLogin }: { onBack: () => void, onSuccess: () => void, onGoogleLogin: () => void }) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -503,11 +497,7 @@ function SignupPage({ onBack, onSuccess, onDemoLogin }: { onBack: () => void, on
       }
       onSuccess();
     } catch (error: any) {
-      if (error.code === 'auth/operation-not-allowed') {
-        alert("Firebase 설정에서 '이메일/비밀번호' 로그인이 활성화되지 않았습니다. Firebase 콘솔의 Authentication > Sign-in method 탭에서 '이메일/비밀번호'를 활성화해 주세요.");
-      } else {
-        alert(error.message);
-      }
+      alert(error.message);
     }
     setLoading(false);
   };
@@ -528,40 +518,48 @@ function SignupPage({ onBack, onSuccess, onDemoLogin }: { onBack: () => void, on
           <h2 className="text-4xl font-black tracking-tighter font-heading">{isLogin ? 'Welcome Back' : 'Create Account'}</h2>
           <p className="text-slate-500 font-sans font-medium mt-2">{isLogin ? '선생님 계정으로 로그인하세요.' : '새로운 교사 계정을 만드세요.'}</p>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {!isLogin && (
-            <div className="space-y-2">
-              <Label htmlFor="name">이름</Label>
-              <Input id="name" placeholder="선생님 성함" value={name} onChange={(e) => setName(e.target.value)} required className="rounded-xl h-12" />
-            </div>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="email">이메일</Label>
-            <Input id="email" type="email" placeholder="teacher@school.com" value={email} onChange={(e) => setEmail(e.target.value)} required className="rounded-xl h-12" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">비밀번호</Label>
-            <Input id="password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required className="rounded-xl h-12" />
-          </div>
-          <Button type="submit" className="w-full bg-slate-900 text-white py-8 rounded-2xl text-lg font-bold" disabled={loading}>
-            {loading ? <Loader2 className="animate-spin" /> : (isLogin ? "로그인" : "가입하기")}
+        
+        <div className="space-y-6">
+          <Button 
+            onClick={onGoogleLogin}
+            className="w-full bg-white border-2 border-slate-200 text-slate-900 py-8 rounded-2xl text-lg font-bold flex items-center justify-center gap-4 hover:bg-slate-50"
+          >
+            <LogIn className="w-6 h-6" />
+            구글로 계속하기
           </Button>
-        </form>
-        <div className="mt-8 text-center space-y-4">
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center"><Separator /></div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-white px-2 text-slate-400">Or with email</span>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {!isLogin && (
+              <div className="space-y-2">
+                <Label htmlFor="name">이름</Label>
+                <Input id="name" placeholder="선생님 성함" value={name} onChange={(e) => setName(e.target.value)} required className="rounded-xl h-12" />
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="email">이메일</Label>
+              <Input id="email" type="email" placeholder="teacher@school.com" value={email} onChange={(e) => setEmail(e.target.value)} required className="rounded-xl h-12" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">비밀번호</Label>
+              <Input id="password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required className="rounded-xl h-12" />
+            </div>
+            <Button type="submit" className="w-full bg-slate-900 text-white py-8 rounded-2xl text-lg font-bold" disabled={loading}>
+              {loading ? <Loader2 className="animate-spin" /> : (isLogin ? "로그인" : "가입하기")}
+            </Button>
+          </form>
+        </div>
+
+        <div className="mt-8 text-center">
           <Button variant="link" onClick={() => setIsLogin(!isLogin)} className="text-slate-500">
             {isLogin ? "계정이 없으신가요? 회원가입" : "이미 계정이 있으신가요? 로그인"}
           </Button>
-          
-          <div className="pt-6 border-t border-slate-100">
-            <p className="text-xs text-slate-400 mb-4">Firebase 설정 없이 체험해보고 싶다면?</p>
-            <Button 
-              variant="outline" 
-              onClick={() => onDemoLogin('teacher', '데모 선생님')}
-              className="w-full border-slate-200 text-slate-600 h-12 rounded-xl hover:bg-slate-50"
-            >
-              데모 모드로 체험하기
-            </Button>
-          </div>
         </div>
       </Card>
     </div>
@@ -717,7 +715,6 @@ function DescriptionPage({ onBack }: { onBack: () => void }) {
 function GameRoom({ gameId, profile, onExit }: { gameId: string, profile: UserProfile, onExit: () => void }) {
   const isTeacher = profile.role === 'teacher';
   const [game, setGame] = useState<Game | null>(null);
-  const [demoGameState, setDemoGameState] = useState<Partial<Game> | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [results, setResults] = useState<RoundResult[]>([]);
   const [mySubmission, setMySubmission] = useState<string>('');
@@ -732,14 +729,14 @@ function GameRoom({ gameId, profile, onExit }: { gameId: string, profile: UserPr
   useEffect(() => {
     if (!gameId) return;
     const unsubGame = firestoreService.subscribeToGame(gameId, (data) => {
-      setGame(prev => ({ ...data, ...demoGameState }));
+      setGame(data);
     });
     const unsubResults = firestoreService.subscribeToResults(gameId, setResults);
     return () => {
       unsubGame();
       unsubResults();
     };
-  }, [gameId, demoGameState]);
+  }, [gameId]);
 
   useEffect(() => {
     if (game?.status === 'describing' || game?.status === 'voting' || game?.status === 'results') {
@@ -777,11 +774,7 @@ function GameRoom({ gameId, profile, onExit }: { gameId: string, profile: UserPr
   }, [game?.currentRound, game?.status]);
 
   const handleStartGame = async () => {
-    if (gameId.startsWith('demo-')) {
-      setDemoGameState({ status: 'describing' });
-    } else {
-      await firestoreService.updateGame(gameId, { status: 'describing' });
-    }
+    await firestoreService.updateGame(gameId, { status: 'describing' });
   };
 
   const handleSubmit = async () => {
@@ -822,11 +815,7 @@ function GameRoom({ gameId, profile, onExit }: { gameId: string, profile: UserPr
       }
     }
 
-    if (gameId.startsWith('demo-')) {
-      setDemoGameState({ status: nextStatus, currentRound: nextRound });
-    } else {
-      await firestoreService.updateGame(gameId, { status: nextStatus, currentRound: nextRound });
-    }
+    await firestoreService.updateGame(gameId, { status: nextStatus, currentRound: nextRound });
     setProcessing(false);
   };
 
@@ -847,11 +836,7 @@ function GameRoom({ gameId, profile, onExit }: { gameId: string, profile: UserPr
       prevStatus = 'results';
     }
 
-    if (gameId.startsWith('demo-')) {
-      setDemoGameState({ status: prevStatus, currentRound: prevRound });
-    } else {
-      await firestoreService.updateGame(gameId, { status: prevStatus, currentRound: prevRound });
-    }
+    await firestoreService.updateGame(gameId, { status: prevStatus, currentRound: prevRound });
     setProcessing(false);
   };
 
@@ -959,9 +944,6 @@ function GameRoom({ gameId, profile, onExit }: { gameId: string, profile: UserPr
           <div>
             <div className="flex items-center gap-3">
               <h1 className="font-black text-2xl tracking-tight font-heading">{game.artworkTitle}</h1>
-              {gameId.startsWith('demo-') && (
-                <Badge className="bg-orange-500 text-white border-none text-[10px] px-2 py-0 rounded-full">PROTOTYPE</Badge>
-              )}
             </div>
             <div className="flex items-center gap-3">
               <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-100 border-none text-[10px] uppercase tracking-widest px-3 py-1 rounded-full">
@@ -1103,24 +1085,18 @@ function GameRoom({ gameId, profile, onExit }: { gameId: string, profile: UserPr
                   </div>
                   <ScrollArea className="h-[400px] pr-4">
                     <div className="grid grid-cols-2 gap-4">
-                      {/* In demo mode, we'll show the user's name and any other participants who have joined.
-                          For simplicity in this prototype, we'll show the user's name + a few active mock names 
-                          if it's the teacher view, or just the user's name if they are a student. */}
-                      {(gameId.startsWith('demo-') ? 
-                        [profile.name, '김철수', '이영희', '박민수'].filter((n, i, a) => a.indexOf(n) === i) : 
-                        submissions.map(s => s.userName)
-                      ).map((name, i) => (
+                      {submissions.map((s, i) => (
                         <motion.div 
-                          key={i}
+                          key={s.id || i}
                           initial={{ opacity: 0, scale: 0.8 }}
                           animate={{ opacity: 1, scale: 1 }}
                           transition={{ delay: i * 0.1 }}
                           className="flex items-center gap-3 p-4 bg-white rounded-2xl shadow-sm border border-slate-100"
                         >
                           <div className="w-10 h-10 bg-slate-900 text-white rounded-full flex items-center justify-center text-xs font-bold">
-                            {name[0]}
+                            {s.userName[0]}
                           </div>
-                          <span className="font-bold text-slate-700">{name}</span>
+                          <span className="font-bold text-slate-700">{s.userName}</span>
                         </motion.div>
                       ))}
                     </div>
@@ -1234,33 +1210,6 @@ function GameRoom({ gameId, profile, onExit }: { gameId: string, profile: UserPr
                         <ChevronRight className="ml-2 w-5 h-5" />
                       </Button>
                     </div>
-                    
-                    {gameId.startsWith('demo-') && (
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="text-slate-400 hover:text-slate-900"
-                        onClick={async () => {
-                          const mocks = [
-                            { userName: '김철수', description: '푸른 밤하늘에 소용돌이치는 노란 별들이 인상적입니다.' },
-                            { userName: '이영희', description: '검은 사이프러스 나무가 하늘을 찌를 듯이 솟아있어요.' },
-                            { userName: '박민수', description: '마을의 불빛들이 평화롭게 빛나고 있습니다.' }
-                          ];
-                          for (const m of mocks) {
-                            await firestoreService.submitDescription(gameId, {
-                              gameId,
-                              roundNumber: game.currentRound,
-                              userId: 'mock-' + Math.random(),
-                              userName: m.userName,
-                              description: m.description
-                            });
-                          }
-                          alert('가상 학생들의 묘사가 추가되었습니다!');
-                        }}
-                      >
-                        <UserPlus className="mr-2 w-4 h-4" /> 가상 학생 묘사 추가 (데모용)
-                      </Button>
-                    )}
                   </div>
                 )}
               </div>
@@ -1585,25 +1534,6 @@ function TeacherDashboard({ profile, onJoinGame, onBack }: { profile: UserProfil
     setCreating(true);
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     
-    if (profile.uid.startsWith('demo-')) {
-      // For demo mode, we can store the game settings in localStorage to "sync" with student tab
-      const demoGame = {
-        id: 'demo-game-id',
-        code,
-        teacherId: profile.uid,
-        status: 'lobby',
-        currentRound: 1,
-        maxRounds: rounds,
-        artworkUrl,
-        artworkTitle,
-        timerSeconds: 120
-      };
-      localStorage.setItem('demoGame', JSON.stringify(demoGame));
-      onJoinGame('demo-game-id');
-      setCreating(false);
-      return;
-    }
-
     const gameId = await firestoreService.createGame({
       code,
       teacherId: profile.uid,
